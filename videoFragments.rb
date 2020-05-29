@@ -2,8 +2,30 @@ require 'fileutils'
 require 'dimensions'
 # gem install dimensions
 
+
+
+
+
+# commands:
+# TO RESIZE WITH PADDING:
+# ffmpeg -i vid-2.mp4 -vf "scale=iw*min(1280/iw\,700/ih):ih*min(1280/iw\,700/ih), pad=1280:700:(1280-iw*min(1280/iw\,700/ih))/2:(700-ih*min(1280/iw\,700/ih))/2" vid2resized.mp4
+
+# TO OVERLAY VIDEOS:
+# ffmpeg -i vid0resized.mp4 -i webresized.webm -filter_complex 'overlay=x=main_w-overlay_w-10:y=main_h-overlay_h-10'  combined.mp4
+
+# TO GET VIDEO RESOLUTION:
+# ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 output.mp4
+
+# TO RESIZE A VIDE
+# ffmpeg -i inputvideo -vf scale=200:-1  output.mp4
+# ffmpeg -i webcams.webm -vcodec libx264 -vf scale=200:-1 resized.mp4
+
+
+#Directory of all recorded sources - /var/bigbluebutton/recording/raw
 $PATHTORAW="/home/maryam/Etudes/PROJECT/demo/rawdata"
+# Directory of all published presentations - /var/bigbluebutton/published/presentation
 $PATHTOPUBLISHED="/home/maryam/Etudes/PROJECT/demo/video/presentation"
+# An intermediate directory, to be automatically created for each processing - anydirectory
 $PATHTOGENERATEINTERMEDIATES="/home/maryam/Etudes/PROJECT/demo/rawdata/processing"
 
 class Meeting
@@ -47,8 +69,12 @@ class VideoFragment
     @stop_timestamp=nil
     attr_accessor :start_timestamp
     attr_accessor :stop_timestamp
-    def generateVideo(destinationDir, id)
+    def generateVideo(destinationDir, id, maxW=0, maxH=0)
 
+    end
+
+    def getResolution()
+        return 0,0
     end
 end
 
@@ -70,11 +96,6 @@ class Slide < VideoFragment
         return "slideId: #{@slideId}, slideNb:#{@slideNb}, presentationName:#{@presentationName}, timestamp:#{@start_timestamp}\n"
     end
 
-    def construct_slide_video(duration, framerate)
-
-
-    end
-
     def getImageSize()
         sourceDirectory="#{$PATHTOPUBLISHED}/#{@meetingId}/presentation/#{@presentationName}/slide-#{@slideNb}.png"
         width=Dimensions.width(sourceDirectory)
@@ -83,7 +104,8 @@ class Slide < VideoFragment
         
     end
 
-    def generateVideo(destinationDir, id)
+    def generateVideo(destinationDir, id, maxW=0, maxH=0)
+
 
         name1="#{destinationDir}/ivid-#{id}.mp4"
         name="#{destinationDir}/vid-#{id}.mp4"
@@ -92,15 +114,20 @@ class Slide < VideoFragment
         width, height = getImageSize()
         width = width%2==0?width:width+1
         height = height%2==0?height:height+1
-        #working but SLOW solution
-        # system "ffmpeg -loop 1 -i #{sourceDirectory} -c:v libx264 -r 24 -pix_fmt yuv420p  -vf scale=#{width}:#{height} -t #{@stop_timestamp-@start_timestamp}  #{name1} -loglevel quiet"
-        # system "ffmpeg -i #{name1} -vcodec vp9 #{name}"
-        #attempt 2
-        # system "ffmpeg -loop 1 -i #{sourceDirectory} -c:v vp9 -r 24 -pix_fmt yuv420p -t #{@stop_timestamp-@start_timestamp}  #{name} "
-        #attempt 3
-        system "ffmpeg -loop 1 -i #{sourceDirectory} -c:v libx264 -r 24 -pix_fmt yuv420p -vf scale=#{width}:#{height} -t #{@stop_timestamp-@start_timestamp}  #{name}  -loglevel quiet"
-
+        # attempt 4 with rescaling
+        if maxH!=0 or maxW!=0 then
+            system "ffmpeg -loop 1 -i #{sourceDirectory} -c:v libx264 -r 24 -pix_fmt yuv420p -vf \"scale=iw*min(#{maxW}/iw\\,#{maxH}/ih):ih*min(#{maxW}/iw\\,#{maxH}/ih), pad=#{maxW}:#{maxH}:(#{maxW}-iw*min(#{maxW}/iw\\,#{maxH}/ih))/2:(#{maxH}-ih*min(#{maxW}/iw\\,#{maxH}/ih))/2 \" -t #{@stop_timestamp-@start_timestamp}  #{name} -loglevel quiet"
+        else
+            system "ffmpeg -loop 1 -i #{sourceDirectory} -c:v libx264 -r 24 -pix_fmt yuv420p -vf scale=#{width}:#{height} -t #{@stop_timestamp-@start_timestamp}  #{name}  -loglevel quiet"
+        end    
         puts "GENERATED #{name} \n"
+    end
+
+    def getResolution()
+        vid="#{$PATHTOPUBLISHED}/#{@meetingId}/presentation/#{@presentationName}/slide-#{@slideNb}.png"
+        wh=`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 #{vid}`
+        wh=wh.split(',')
+        return wh[0].to_i, wh[1].to_i
     end
 
 end
@@ -118,7 +145,7 @@ class DeskShareFragment <VideoFragment
     attr_accessor :id
 
 
-    def generateVideo(destinationDir, id)
+    def generateVideo(destinationDir, id, maxW=0, maxH=0)
         name="#{destinationDir}/vid-#{id}.mp4"
         puts name
         sourceDirectory="#{$PATHTOPUBLISHED}/#{@meetingId}/deskshare/deskshare.webm"
@@ -129,8 +156,14 @@ class DeskShareFragment <VideoFragment
     end
 
     def to_str
-        # return "DeskShareFragment"
         return "start_timestamp: #{@start_timestamp}, stop_timestamp:#{@stop_timestamp}\n"
+    end
+
+    def getResolution()
+        vid="#{$PATHTOPUBLISHED}/#{@meetingId}/deskshare/deskshare.webm"
+        wh=`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 #{vid}`
+        wh=wh.split(',')
+        return wh[0].to_i, wh[1].to_i
     end
 
 end
@@ -153,6 +186,7 @@ class MeetingGenerator
         return @logs
     end
     
+    # TO IMPROVE
     def readEventsFile()
         if(@meetingData==nil)
             return 
@@ -281,92 +315,80 @@ class MeetingGenerator
         return objects
     end
 
+    # METHOD to create a list of video fragments according to timeline
     def generateVideos()
         #GENERATE AN INTERMEDIARY DIRECTORY WHERE WE'D STORE THE VIDEO FRAGMENTS
         pathToIntermediates="#{$PATHTOGENERATEINTERMEDIATES}/#{@meetingData.meetingId}"
         puts "generating intermediate videos in #{pathToIntermediates}"
         if Dir.exist?pathToIntermediates
-            puts "directory exists!"
+            # remove old one and create a new directory
            FileUtils.remove_dir(pathToIntermediates) 
-           puts "removed old one"
            FileUtils.mkdir_p pathToIntermediates
-            puts "created a new one"
         else
-            puts "directory doesnt exist"
+            # create a directory
             FileUtils.mkdir_p pathToIntermediates
-            puts "created a new one"
         end
     
-        #TODO . CHECK IF THE EXTENSION of video IS CORRECT!!!!
-        dsPath="#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/deskshare/deskshare.webm"
+        dsPath="#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/deskshare"
         presentationPath="#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/presentation"
+        
+        #If a deskshare exists, scale up to its resolution
+        maxW=0
+        maxH=0
+        if Dir.exist?dsPath then
+            maxW, maxH = getMaxResolution(dsPath)
+        end 
+
         @objects.each_with_index{
             |val, index|
-            if val.instance_of?DeskShareFragment then
-                #puts "Generating a video from #{dsPath} in interval [#{val.start_timestamp}, #{val.stop_timestamp}]"
-                #here function to generate that video
-            elsif val.instance_of?Slide then
-                #TODO  NOT SURE ABOUT STOP TIMESTAMP
-                # val.stop_timestamp=(index==videoFragmentArray.length-1)?meetingData.end_time : videoFragmentArray[index+1].start_timestamp
-                # puts "Generating slide video from #{presentationPath}/#{val.presentationName}/slide-#{val.slideNb}.png  in interval [#{val.start_timestamp}, #{val.stop_timestamp}]"
-                #here function to generate that vide
-            end
             puts "Generating a #{val.class} video in interval [#{val.start_timestamp}, #{val.stop_timestamp}]"
-            val.generateVideo(pathToIntermediates, index)
-        }
-    
+            val.generateVideo(pathToIntermediates, index, maxW, maxH)
+        }   
     end
+
+    # METHOD to merge all the separate video fragments for presentation+deskshare
     def mergeVideos()
         pathToIntermediates="#{$PATHTOGENERATEINTERMEDIATES}/#{@meetingData.meetingId}"
         vidList="#{pathToIntermediates}/vidList.txt"
+        # Create a txt file with the lists of all videos to concatenate
         system "echo >#{vidList}"
         (0...@objects.length).each do |e|
             system "echo file \'#{pathToIntermediates}/vid-#{e}.mp4\' >> #{vidList}"    
         end
-        # system "echo \"file \'#{pathToIntermediates}/vid-#{@objects.length-1}.mp4\'\" >> #{vidList}" 
-        puts "vidList generated"
 
+        # Concatenate videos from the txt file
         system "ffmpeg -f concat -safe 0 -i #{vidList} -c copy #{pathToIntermediates}/output.mp4 "
     end
+
+    # METHOD to add webcam recording to final video
+    def addWebCam()
+        pathToWebcam  = "#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/video/webcams.webm"
+        pathToIntermediates= "#{$PATHTOGENERATEINTERMEDIATES}/#{@meetingData.meetingId}"
+
+        # resize the webcam video
+        system "ffmpeg -i #{pathToWebcam}  -vcodec libx264 -vf scale=200:-1  #{pathToIntermediates}/webcamResized.webm"
+        #merge it with the presentation+deskshare video
+        system "ffmpeg -i #{pathToIntermediates}/output.mp4 -i #{pathToIntermediates}/webcamResized.webm -filter_complex \' overlay=x=main_w-overlay_w-10:y=main_h-overlay_h-10 \' #{pathToIntermediates}/finalcut.mp4"
+    end
+
+    def generatePresentationVideo()
+        readEventsFile()
+        puts "Video timeline reconstruction completed"
+        generateVideos()
+        puts "Video fragments generation completed"
+        mergeVideos()
+        puts "Merge of videos completed"
+        addWebCam()
+        puts "WeCam video has been concatenated"
+    end
+
+
+
+    def getMaxResolution(pathToDeskshare)
+        vid="#{pathToDeskshare}/deskshare.webm"
+        wh=`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 #{vid}`
+        wh=wh.split(',')
+        return wh[0].to_i, wh[1].to_i
+    end
+
 end
-
-
-
-
-# def readEventsFile(meetingData)
-#     pathtoevents="#{$PATHTORAW}/#{meetingData.meetingId}/events.xml"
-#     # puts pathtoevents
-#     # dsFragments=DeskShareFragment.readDeskShareXml(meetingData.meetingId)
-#     currentDsFragment=0
-#     objects=Array.new
-#     begin
-#         xmlfile = File.new(pathtoevents)
-#         xmldoc = Document.new(xmlfile)
-#         xmldoc.elements.each("recording/event"){ 
-#             |e|
-#             if e.attributes["eventname"]=="GotoSlideEvent" or e.attributes["eventname"]=="StartWebRTCDesktopShareEvent" or e.attributes["eventname"]=="StopWebRTCDesktopShareEvent" 
-                
-#                 if e.attributes["eventname"]=="StartWebRTCDesktopShareEvent"
-#                     dsFragment=DeskShareFragment.new
-#                     dsFragment.start_timestamp=e.elements["timestampUTC"].text.to_i-meetingData.start_time
-#                     objects.push(dsFragment)
-                
-#                 elsif e.attributes["eventname"]=="StopWebRTCDesktopShareEvent"
-#                     dsFragment=objects.last()
-#                     dsFragment.stop_timestamp=e.elements["timestampUTC"].text.to_i-meetingData.start_time
-
-#                 elsif e.attributes["eventname"]=="GotoSlideEvent" then
-#                         slide =Slide.new
-#                         slide.start_timestamp=e.elements["timestampUTC"].text.to_i-meetingData.start_time
-#                         slide.slideId=e.elements["id"].text
-#                         slide.slideNb=e.elements["slide"].text
-#                         slide.presentationName=e.elements["presentationName"].text
-#                         objects.push(slide)
-#                 end
-#             end   
-#         }
-#     rescue => exception
-#         puts "Exception: #{exception.message}"
-#     end
-#     return objects
-# end
