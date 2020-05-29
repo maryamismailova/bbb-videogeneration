@@ -366,9 +366,9 @@ class MeetingGenerator
         pathToIntermediates= "#{$PATHTOGENERATEINTERMEDIATES}/#{@meetingData.meetingId}"
 
         # resize the webcam video
-        system "ffmpeg -i #{pathToWebcam}  -vcodec libx264 -vf scale=200:-1  #{pathToIntermediates}/webcamResized.webm"
+        system "ffmpeg -i #{pathToWebcam}  -vcodec libx264 -vf scale=200:-1  #{pathToIntermediates}/webcamResized.mp4"
         #merge it with the presentation+deskshare video
-        system "ffmpeg -i #{pathToIntermediates}/output.mp4 -i #{pathToIntermediates}/webcamResized.webm -filter_complex \' overlay=x=main_w-overlay_w-10:y=main_h-overlay_h-10 \' #{pathToIntermediates}/finalcut.mp4"
+        system "ffmpeg -i #{pathToIntermediates}/output.mp4 -i #{pathToIntermediates}/webcamResized.mp4 -filter_complex \' overlay=x=main_w-overlay_w-10:y=main_h-overlay_h-10 \' #{pathToIntermediates}/finalcut.mp4"
     end
 
     def generatePresentationVideo()
@@ -379,7 +379,7 @@ class MeetingGenerator
         mergeVideos()
         puts "Merge of videos completed"
         addWebCam()
-        puts "WeCam video has been concatenated"
+        puts "WebCam video has been concatenated"
     end
 
 
