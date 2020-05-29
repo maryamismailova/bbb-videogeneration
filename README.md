@@ -6,6 +6,10 @@ In order to install it:
 1. Put the files inside /usr/local/bigbluebutton/core/scripts/post_publish on BBB server (directory for POST PUBLISH scripts)
 2. Change the beginning of xmlparser.rb with the following code:
 ```
+#!/usr/bin/ruby
+require 'rexml/document'
+require_relative 'videoFragments.rb'
+include REXML
 require "trollop"
 require File.expand_path('../../../lib/recordandplayback', __FILE__)
 
