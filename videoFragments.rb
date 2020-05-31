@@ -185,7 +185,7 @@ class MeetingGenerator
     def exposeLogs()
         return @logs
     end
-    
+
     # TO IMPROVE
     def readEventsFile()
         if(@meetingData==nil)
@@ -208,31 +208,30 @@ class MeetingGenerator
                 |e|
                 if e.attributes["eventname"]=="RecordStatusEvent" then
                     if e.elements["status"].text == "true"
-                        # puts "START Recording (#{recordingTimestamp})"
                         writeToLogs("START Recording (#{recordingTimestamp})")
                         isRecording=true
                         startOfRecording=e.elements["timestampUTC"].text.to_i
+                        # CHECK if any element was changed when recording was off
                         if currentDsFragment!=nil then
                             currentDsFragment.start_timestamp = recordingTimestamp
                             writeToLogs("RECORDING STARTS, RECORD DESKSHARE")
-                            # puts "RECORDING STARTS, RECORD DESKSHARE"
                             objects.push(currentDsFragment)
-                            currentDsFragment = nil
-                            currentSlide=nil
                         elsif currentSlide!=nil then  
                             currentSlide.start_timestamp = recordingTimestamp
                             objects.push(currentSlide)
                             writeToLogs("RECORDING STARTS WITH LAST ADDED SLIDE")
-                            # puts "RECORDING STARTS WITH LAST ADDED SLIDE"
+                            # RESET the elements to null
                             currentDsFragment = nil
                             currentSlide=nil
                         end
+                        currentDsFragment = nil
+                        currentSlide=nil
                     else 
                         isRecording=false
                         endOfRecording=e.elements["timestampUTC"].text.to_i
                         recordingIntervals.push([startOfRecording, endOfRecording])
                         recordingTimestamp+=(endOfRecording-startOfRecording)/1000
-                        # puts "STOP Recording (#{recordingTimestamp})"
+
                         writeToLogs("STOP Recording (#{recordingTimestamp})")
                         if(objects.length!=0)
                             objects.last().stop_timestamp=recordingTimestamp
@@ -248,11 +247,10 @@ class MeetingGenerator
                             if objects.length!=0 && objects.last().start_timestamp>=recordingTimestamp then
                                 objects.last().stop_timestamp=dsFragment.start_timestamp
                             elsif objects.length!=0 && objects.last().stop_timestamp==recordingTimestamp then
-                                objects.last().start_timestamp+=timeFromStartOfCurrentRec
+                                objects.last().stop_timestamp+=timeFromStartOfCurrentRec
                             end
                             objects.push(dsFragment)
                             writeToLogs("RECORD DESKSHARE #{dsFragment.start_timestamp}")
-                            # puts "RECORD DESKSHARE #{dsFragment.start_timestamp}"
                         
                         elsif e.attributes["eventname"]=="StopWebRTCDesktopShareEvent"
                             if objects.length!=0 && objects.last().stop_timestamp==recordingTimestamp then
@@ -261,14 +259,13 @@ class MeetingGenerator
                                 objects.last().stop_timestamp=timeFromStartOfCurrentRec+recordingTimestamp
                             end
                             writeToLogs("STOP RECORD DESKSHARE (#{objects.last().start_timestamp}, #{objects.last().stop_timestamp})")
-                            # puts "STOP RECORD DESKSHARE (#{objects.last().start_timestamp}, #{objects.last().stop_timestamp})"
+
                         elsif e.attributes["eventname"]=="EndAndKickAllEvent"
                             if objects.length!=0 then
                                 objects.last().stop_timestamp=timeFromStartOfCurrentRec+recordingTimestamp
                             end
                             writeToLogs("STOP ALL (#{objects.last().start_timestamp}, #{objects.last().stop_timestamp}) ")
-                            # puts "STOP ALL (#{objects.last().start_timestamp}, #{objects.last().stop_timestamp}) "
-                            
+
                         elsif e.attributes["eventname"]=="GotoSlideEvent" then
                             slide = Slide.new(@meetingData.meetingId)
                             slide.start_timestamp=timeFromStartOfCurrentRec+recordingTimestamp
@@ -284,7 +281,7 @@ class MeetingGenerator
                             end
                             objects.push(slide)
                             writeToLogs("RECORD SLIDE #{slide.start_timestamp}")
-                            # puts "RECORD SLIDE #{slide.start_timestamp}"
+
                         end
                     else # if not recording
                         if e.attributes["eventname"]=="GotoSlideEvent" then
@@ -294,15 +291,15 @@ class MeetingGenerator
                             currentSlide.slideNb=e.elements["slide"].text
                             currentSlide.presentationName=e.elements["presentationName"].text
                             writeToLogs("NON RECORDED SLIDE ")
-                            # puts "NON RECORDED SLIDE "
+
                         elsif e.attributes["eventname"]=="StartWebRTCDesktopShareEvent" then
                             currentDsFragment = DeskShareFragment.new(@meetingData.meetingId)
                             writeToLogs("NON RECORDED DESKSHARE STARTED ")
-                            # puts "NON RECORDED DESKSHARE STARTED "
+
                         elsif e.attributes["eventname"]=="StopWebRTCDesktopShareEvent"
                             currentDsFragment = nil
                             writeToLogs("NON RECORDED DESKSHARE STOPPED")
-                            # puts "NON RECORDED DESKSHARE STOPPED"
+
                         end
     
                     end
@@ -332,12 +329,15 @@ class MeetingGenerator
         dsPath="#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/deskshare"
         presentationPath="#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/presentation"
         
-        #If a deskshare exists, scale up to its resolution
+        #Scale to optimal resolution
         maxW=0
         maxH=0
         if Dir.exist?dsPath then
             maxW, maxH = getMaxResolution(dsPath)
-        end 
+        else  
+            maxW, maxH = getMaxResolution()
+        end
+
 
         @objects.each_with_index{
             |val, index|
@@ -355,7 +355,6 @@ class MeetingGenerator
         (0...@objects.length).each do |e|
             system "echo file \'#{pathToIntermediates}/vid-#{e}.mp4\' >> #{vidList}"    
         end
-
         # Concatenate videos from the txt file
         system "ffmpeg -f concat -safe 0 -i #{vidList} -c copy #{pathToIntermediates}/output.mp4 "
     end
@@ -382,13 +381,37 @@ class MeetingGenerator
         puts "WebCam video has been concatenated"
     end
 
+    def getMaxResolution(dsPath=nil)
 
+        if(dsPath==nil) then
+            maxW=0
+            maxH=0
+            @objects.each{
+                |video|
+                curW, curH = video.getResolution()
+                if curW > maxW then
+                    maxW = curW
+                    maxH = curH
+                elsif curW==maxW then
+                    if curH > maxH then
+                        maxH=curH
+                    end
+                end
+            }
+            return maxW, maxH
+        else
+            vid="#{dsPath}/deskshare.webm"
+            wh=`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 #{vid}`
+            wh=wh.split(',')
+            return wh[0].to_i, wh[1].to_i
+        end
+    end
 
-    def getMaxResolution(pathToDeskshare)
-        vid="#{pathToDeskshare}/deskshare.webm"
-        wh=`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 #{vid}`
-        wh=wh.split(',')
-        return wh[0].to_i, wh[1].to_i
+    def printTimeline()
+        @objects.each_with_index{
+            |val, index|
+            puts "#{val.class} video in interval [#{val.start_timestamp}, #{val.stop_timestamp}]"
+        }  
     end
 
 end

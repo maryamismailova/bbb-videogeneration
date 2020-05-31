@@ -17,7 +17,3 @@ meeting=Meeting.new(meetingId)
 meetGen=MeetingGenerator.new(meeting)
 meetGen.generatePresentationVideo()
 
-# objs=meetGen.readEventsFile()
-# puts meetGen.exposeLogs()
-# meetGen.generateVideos()
-# meetGen.mergeVideos()
