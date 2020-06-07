@@ -317,14 +317,7 @@ class MeetingGenerator
         #GENERATE AN INTERMEDIARY DIRECTORY WHERE WE'D STORE THE VIDEO FRAGMENTS
         pathToIntermediates="#{$PATHTOGENERATEINTERMEDIATES}/#{@meetingData.meetingId}"
         puts "generating intermediate videos in #{pathToIntermediates}"
-        if Dir.exist?pathToIntermediates
-            # remove old one and create a new directory
-           FileUtils.remove_dir(pathToIntermediates) 
-           FileUtils.mkdir_p pathToIntermediates
-        else
-            # create a directory
-            FileUtils.mkdir_p pathToIntermediates
-        end
+        createDirectoryIfNotExists(pathToIntermediates)
     
         dsPath="#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/deskshare"
         presentationPath="#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/presentation"
@@ -356,7 +349,7 @@ class MeetingGenerator
             system "echo file \'#{pathToIntermediates}/vid-#{e}.mp4\' >> #{vidList}"    
         end
         # Concatenate videos from the txt file
-        system "ffmpeg -f concat -safe 0 -i #{vidList} -c copy #{pathToIntermediates}/output.mp4 "
+        system "ffmpeg -f concat -safe 0 -i #{vidList} -c copy #{pathToIntermediates}/output.mp4 -loglevel quiet"
     end
 
     # METHOD to add webcam recording to final video
@@ -365,9 +358,21 @@ class MeetingGenerator
         pathToIntermediates= "#{$PATHTOGENERATEINTERMEDIATES}/#{@meetingData.meetingId}"
 
         # resize the webcam video
-        system "ffmpeg -i #{pathToWebcam}  -vcodec libx264 -vf scale=200:-1  #{pathToIntermediates}/webcamResized.mp4"
+        puts " Resizing webcam recording "
+        system "ffmpeg -i #{pathToWebcam}  -vcodec libx264 -vf scale=200:-1  #{pathToIntermediates}/webcamResized.mp4 -loglevel quiet"
+        
+        # create a directory to store the final video(inside the published)
+        pathToCompleteRecording="#{$PATHTOPUBLISHED}/#{@meetingData.meetingId}/completeVideo"
+        createDirectoryIfNotExists(pathToCompleteRecording)
+
+        puts "Adding webcam into final video"
         #merge it with the presentation+deskshare video
-        system "ffmpeg -i #{pathToIntermediates}/output.mp4 -i #{pathToIntermediates}/webcamResized.mp4 -filter_complex \' overlay=x=main_w-overlay_w-10:y=main_h-overlay_h-10 \' #{pathToIntermediates}/finalcut.mp4"
+        system "ffmpeg -i #{pathToIntermediates}/output.mp4 -i #{pathToIntermediates}/webcamResized.mp4 -filter_complex \' overlay=x=main_w-overlay_w-10:y=main_h-overlay_h-10 \' #{pathToCompleteRecording}/finalcut.mp4 -loglevel quiet"
+    end
+
+    def cleanAll()
+        pathToIntermediates= "#{$PATHTOGENERATEINTERMEDIATES}/#{@meetingData.meetingId}"
+        removeDirectory(pathToIntermediates)
     end
 
     def generatePresentationVideo()
@@ -379,6 +384,8 @@ class MeetingGenerator
         puts "Merge of videos completed"
         addWebCam()
         puts "WebCam video has been concatenated"
+        cleanAll()
+        puts "All the intermediate files are removed"
     end
 
     def getMaxResolution(dsPath=nil)
@@ -404,6 +411,23 @@ class MeetingGenerator
             wh=`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 #{vid}`
             wh=wh.split(',')
             return wh[0].to_i, wh[1].to_i
+        end
+    end
+
+
+    def createDirectoryIfNotExists(directoryPath)
+        if Dir.exist?directoryPath
+            # remove old one and create a new directory
+           FileUtils.remove_dir(directoryPath) 
+           FileUtils.mkdir_p directoryPath
+        else
+            # create a directory
+            FileUtils.mkdir_p directoryPath
+        end
+    end
+    def removeDirectory(directoryPath)
+        if Dir.exist?directoryPath
+            FileUtils.remove_dir(directoryPath)
         end
     end
 
